@@ -51,7 +51,7 @@ flask-suricata-dashboard
 
 5. **Run the application:**
    ```
-   python src/app.py
+   flask run
    ```
 
 6. **Access the dashboard:**
