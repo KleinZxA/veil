@@ -31,7 +31,7 @@ flask-suricata-dashboard
 
 1. **Clone the repository:**
    ```
-   git clone https://github.com/KleinZxA/veil.git
+   git clone <repository-url>
    cd flask-suricata-dashboard
    ```
 
@@ -51,7 +51,7 @@ flask-suricata-dashboard
 
 5. **Run the application:**
    ```
-   flask run
+   python src/app.py
    ```
 
 6. **Access the dashboard:**

@@ -1,5 +1,5 @@
 Flask
-Flask-SocketIO
+Flask_SocketIO
 eventlet
 requests
 python-dotenv

@@ -3,12 +3,15 @@ from flask_socketio import SocketIO
 from config import Config
 from services.suricata_client import SuricataClient
 from sockets import setup_sockets
+import os
 
 app = Flask(__name__)
 app.config.from_object(Config)
 socketio = SocketIO(app)
 
-suricata_client = SuricataClient()
+# get Suricata URL from app config or environment, fallback to localhost
+suricata_url = app.config.get('SURICATA_URL') or os.environ.get('SURICATA_URL') or 'http://127.0.0.1:8000'
+suricata_client = SuricataClient(suricata_url)
 
 @app.route('/')
 def index():
