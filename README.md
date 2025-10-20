@@ -16,6 +16,7 @@ A real-time web dashboard that displays Suricata IDS/IPS alerts and logs using F
 - Python 3.11 or higher
 - Suricata IDS/IPS installed and running
 - Access to Suricata's eve.json log file
+- npcap installed
 
 ## Project Structure
 
