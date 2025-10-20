@@ -1,4 +1,4 @@
-# Flask Suricata Dashboard
+# V.E.I.L.
 
 A real-time web dashboard that displays Suricata IDS/IPS alerts and logs using Flask and Socket.IO. Built with modern web technologies for live monitoring of network security events.
 
