@@ -43,23 +43,25 @@ flask-suricata-dashboard/
 > Currently only Working in Windows.
 
 1. Clone the repository:
-```powershell
+```
 git clone https://github.com/KleinZxA/veil.git
 cd flask-suricata-dashboard
 ```
+> [!NOTE]
+> In linux you need to create a virtual environment.
 
-2. Create and activate a virtual environment:
-```powershell
-python -m venv <Project Directory>
+2. Create a virtual environment:
+```
+python -m venv flask-suricata-dashboard
 ```
 
 3. Install dependencies:
-```powershell
+```
 <Project DIR>/bin/pip install -r requirements.txt
 ```
 
 4. Configure Suricata path:
-```powershell
+```
 $env:SURICATA_EVE_PATH="C:\Program Files\Suricata\log\eve.json"
 # Or edit src/config.py to set the path
 ```
@@ -67,7 +69,7 @@ $env:SURICATA_EVE_PATH="C:\Program Files\Suricata\log\eve.json"
 ## Running the Application
 
 1. Start the Flask server:
-```powershell
+```
 cd src
 <Project DIR>/bin/python ../app.py
 ```
