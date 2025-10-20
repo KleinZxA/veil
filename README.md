@@ -39,6 +39,9 @@ flask-suricata-dashboard/
 
 ## Installation
 
+> [!NOTE]
+> Currently only Working in Windows.
+
 1. Clone the repository:
 ```powershell
 git clone <repository-url>
@@ -75,6 +78,7 @@ http://localhost:5000
 ```
 
 ## Configuration
+- Configure Your Suricata Installation: https://docs.suricata.io/en/latest/quickstart.html
 
 The application can be configured through environment variables or `config.py`:
 
@@ -97,6 +101,7 @@ Common issues and solutions:
    - Verify eventlet is installed and working
 
 3. **Permission errors:**
+   - Run Suricata as Administrator
    - Ensure your user has read access to eve.json
    - Run Flask with appropriate permissions
 
