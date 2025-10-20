@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suricata Advanced Threat Dashboard</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter font from Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <!-- Load Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+    <!-- Socket.IO client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <!-- Custom Tailwind Configuration for Dracula/Tokyo Night Palette -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        // Core Backgrounds
+                        'bg-dark': '#1a1b26', // Deep Indigo/Navy (Tokyo Night)
+                        'surface': '#24283b', // Card/Elevated Surface
+                        'widget-bg': '#1e202e', // Slightly darker surface for content widgets
+                        'sidebar-bg': '#161720', // Darkest background for the sidebar
+                        
+                        // Foreground Text
+                        'text-default': '#a9b1d6',
+                        'text-high': '#c0caf5',
+                        
+                        // Accent Colors (Primary Interactive & Code Colors)
+                        'accent-primary': '#bb9af7', // Signature Purple (High Priority/Interactive)
+                        'accent-secondary': '#7dcfff', // Bright Cyan/Blue (Networking/Informational)
+                        
+                        // Status/Utility Colors
+                        'success': '#9ece6a', // Green (Normal/Pass)
+                        'warning': '#e0af68', // Orange/Yellow (Medium Priority)
+                        'error': '#f7768e', // Pinkish Red (Critical Alert)
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar styling */
+        .log-stream::-webkit-scrollbar { width: 8px; }
+        .log-stream::-webkit-scrollbar-track { background: #1a1b26; }
+        .log-stream::-webkit-scrollbar-thumb { background: #24283b; border-radius: 4px; }
+        .log-stream::-webkit-scrollbar-thumb:hover { background: #414863; }
+        
+        /* Active sidebar link style */
+        .nav-link.active {
+            background-color: #24283b;
+            border-left-color: #bb9af7;
+            color: #c0caf5;
+            font-weight: 600;
+        }
+        pre.event-json { background:#0f1724; padding:8px; border-radius:6px; color:#cbd5e1; font-size:12px; overflow:auto; }
+    </style>
+</head>
+<body class="bg-bg-dark text-text-default font-sans min-h-screen flex">
+
+    <!-- Firebase Setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, setLogLevel, collection, query, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        setLogLevel('Debug');
+        
+        let db;
+        let auth;
+        let userId = 'loading...';
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        if (Object.keys(firebaseConfig).length > 0) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                async function authenticate() {
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                        userId = auth.currentUser.uid;
+                        const userIdEl = document.getElementById('userIdDisplay');
+                        if (userIdEl) {
+                            userIdEl.textContent = userId;
+                        }
+                    } catch (error) {
+                        console.error("Firebase Auth Error:", error);
+                        userId = crypto.randomUUID();
+                    }
+                }
+                authenticate();
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+            }
+        } else {
+            userId = crypto.randomUUID();
+        }
+
+        window.db = db;
+        window.auth = auth;
+        window.getUserId = () => userId;
+        window.onSnapshot = onSnapshot; // Expose for main script
+        window.collection = collection;
+        window.query = query;
+    </script>
+
+    <!-- Sidebar Navigation -->
+    <div class="hidden md:flex flex-col w-64 bg-sidebar-bg p-4 border-r border-surface sticky top-0 h-screen">
+        <div class="text-text-high text-xl font-bold mb-8 flex items-center">
+            <span class="text-accent-primary mr-2">🔒</span> Veil Console
+        </div>
+        
+        <nav class="flex-grow">
+            <a href="#" onclick="showView('dashboard-view')" class="nav-link active flex items-center p-3 mb-2 rounded-md transition duration-150 border-l-4 border-transparent hover:bg-surface">
+                <i class="fas fa-tachometer-alt w-5 mr-3 text-accent-secondary"></i> Dashboard Overview
+            </a>
+            <a href="#" onclick="showView('notifications-view')" class="nav-link flex items-center p-3 mb-2 rounded-md transition duration-150 border-l-4 border-transparent hover:bg-surface">
+                <i class="fas fa-bell w-5 mr-3 text-error"></i> Notifications & Alerts
+            </a>
+            <a href="#" onclick="showView('traffic-view')" class="nav-link flex items-center p-3 mb-2 rounded-md transition duration-150 border-l-4 border-transparent hover:bg-surface">
+                <i class="fas fa-chart-area w-5 mr-3 text-warning"></i> Network Traffic Analysis
+            </a>
+            <a href="#" onclick="showView('rules-view')" class="nav-link flex items-center p-3 mb-2 rounded-md transition duration-150 border-l-4 border-transparent hover:bg-surface">
+                <i class="fas fa-code-branch w-5 mr-3 text-success"></i> Rules Management
+            </a>
+            <div class="pt-4 mt-4 border-t border-surface">
+                 <a href="#" onclick="showView('reports-view')" class="nav-link flex items-center p-3 mb-2 rounded-md transition duration-150 border-l-4 border-transparent hover:bg-surface">
+                    <i class="fas fa-chart-line w-5 mr-3 text-text-default/70"></i> Report Analytics
+                </a>
+            </div>
+        </nav>
+
+        <div class="mt-8 pt-4 border-t border-surface text-xs text-text-default/50">
+            User ID: <span id="userIdDisplay" class="font-mono break-all text-text-default/80">Local</span>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="flex-grow p-4 sm:p-8 overflow-y-auto">
+        
+        <!-- Header for Mobile/Context -->
+        <header class="block md:hidden mb-6 pb-2 border-b border-accent-primary/20">
+            <h1 class="text-2xl font-extrabold text-text-high mb-1">Suricata Dashboard</h1>
+        </header>
+
+        <!-- Dynamic View Container -->
+        <div id="views">
+            
+            <!-- 1. Dashboard Overview View -->
+            <div id="dashboard-view" class="view">
+                <h1 class="text-3xl font-bold text-text-high mb-6">Dashboard Overview (Automated Response)</h1>
+
+                <!-- Network Status Overview & System Health -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-6 mb-10">
+                    <div class="bg-widget-bg p-5 rounded-lg border-t-4 border-error shadow-xl"><p class="text-sm text-text-default/70">Critical Alerts</p><p class="text-3xl sm:text-4xl font-bold text-error mt-1" id="critical-alert-count">0</p></div>
+                    <div class="bg-widget-bg p-5 rounded-lg border-t-4 border-accent-primary shadow-xl"><p class="text-sm text-text-default/70">Blocked Threats</p><p class="text-3xl sm:text-4xl font-bold text-accent-primary mt-1" id="blocked-count">0</p></div>
+                    <div class="bg-widget-bg p-5 rounded-lg border-t-4 border-accent-secondary shadow-xl"><p class="text-sm text-text-default/70">Active Flows</p><p class="text-3xl sm:text-4xl font-bold text-accent-secondary mt-1" id="active-flows">0</p></div>
+                    <div class="bg-widget-bg p-5 rounded-lg border-t-4 border-success shadow-xl"><p class="text-sm text-text-default/70">System Health</p><p class="text-3xl sm:text-4xl font-bold text-success mt-1">OK</p></div>
+                    <div class="bg-widget-bg p-5 rounded-lg border-t-4 border-warning shadow-xl">
+                        <p class="text-sm text-text-default/70">Auto-Block Status</p>
+                        <p class="text-3xl sm:text-4xl font-bold text-success mt-1">ON</p>
+                    </div>
+                </div>
+
+                <!-- Charts, Logs, and Automated Response -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                    <!-- Alerts Over Time (Moving Chart) -->
+                    <div class="lg:col-span-2 bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                        <h2 class="text-xl font-semibold text-text-high mb-4">Alerts Over Time (Live)</h2>
+                        <canvas id="liveAlertChart" width="800" height="300" class="rounded-lg bg-bg-dark border border-surface"></canvas>
+                    </div>
+
+                    <!-- Automated AI Response Log -->
+                    <div class="bg-widget-bg p-5 rounded-xl shadow-inner border border-accent-primary/50 lg:row-span-2">
+                        <h2 class="text-xl font-bold text-accent-primary mb-4 flex items-center justify-between">
+                            <i class="fas fa-robot mr-2"></i> Automated AI Response Log
+                        </h2>
+                        <div id="automated-analysis-log" class="log-stream h-[32rem] overflow-y-scroll text-xs font-mono p-2 rounded-md bg-bg-dark border border-surface">
+                            <p class="text-text-default/50 italic">AI will analyze blocked critical threats here...</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Real-Time Traffic Monitor / Logs -->
+                    <div class="lg:col-span-2 bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                        <h2 class="text-xl font-semibold text-text-high mb-4 flex items-center justify-between">
+                            Real-Time Traffic Monitor
+                            <span class="text-sm text-accent-secondary font-mono px-2 py-0.5 bg-accent-secondary/20 rounded-full">LIVE</span>
+                        </h2>
+                        <div id="log-stream" class="log-stream h-60 overflow-y-scroll text-xs font-mono p-2 rounded-md bg-bg-dark border border-surface">
+                            <p class="text-text-default/50">Listening for live Suricata events...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Replaced Packet Inspection Summary with Live Log Details + Tops -->
+                <div class="mt-6 bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2">
+                        <h2 class="text-xl font-semibold text-text-high mb-3">Latest Event Details</h2>
+                        <div id="latest-event-json" class="event-json"><em>No events yet</em></div>
+
+                        <h3 class="text-sm text-text-default/70 mt-4 mb-2">Recent raw events (most recent first)</h3>
+                        <div id="recent-events" class="log-stream h-48 overflow-y-auto text-xs font-mono p-2 rounded-md bg-bg-dark border border-surface"></div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-lg font-semibold text-text-high mb-3">Top Signatures</h3>
+                        <ul id="top-signatures" class="text-sm space-y-2 text-text-default/90"></ul>
+
+                        <h3 class="text-lg font-semibold text-text-high mt-6 mb-3">Top Source IPs</h3>
+                        <ul id="top-sources" class="text-sm space-y-2 text-text-default/90"></ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Notifications & Alerts View with Manual AI Analysis -->
+            <div id="notifications-view" class="view hidden">
+                <h1 class="text-3xl font-bold text-text-high mb-6">Notifications & Alerts (Alert Table & Manual AI Analysis)</h1>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    <!-- Alert Table (2/3 width) -->
+                    <div class="lg:col-span-2">
+                        <!-- Filter and Actions -->
+                        <div class="p-4 bg-widget-bg rounded-xl shadow-inner border border-surface/50 mb-4 flex flex-col sm:flex-row gap-3 justify-between items-center">
+                            <input 
+                                type="text" 
+                                placeholder="Filter by Signature, IP, or Severity..."
+                                class="w-full sm:w-1/2 px-4 py-2 bg-bg-dark text-text-high border border-surface/50 rounded-lg focus:border-accent-secondary focus:ring-1 focus:ring-accent-secondary outline-none">
+
+                            <div class="flex gap-3 w-full sm:w-auto">
+                                <button class="px-4 py-2 rounded-md font-bold text-bg-dark bg-success hover:bg-success/80 transition">
+                                    <i class="fas fa-check-circle mr-2"></i> Resolve All
+                                </button>
+                                <button class="px-4 py-2 rounded-md font-bold text-text-high border border-text-default/50 hover:bg-surface transition flex-1" onclick="exportAlerts()">
+                                    <i class="fas fa-file-export mr-2"></i> Export (CSV/PDF)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Table -->
+                        <div class="bg-widget-bg rounded-xl overflow-hidden shadow-xl border border-surface/50">
+                            <table class="min-w-full divide-y divide-surface/50" id="alerts-table">
+                                <thead class="bg-surface">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-text-default uppercase tracking-wider">Time</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-text-default uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-text-default uppercase tracking-wider">Signature</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-text-default uppercase tracking-wider">Source/Target</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-surface/50">
+                                    <!-- Real-time data will populate this section -->
+                                </tbody>
+                            </table>
+                            <p id="alerts-table-empty" class="text-center p-4 text-text-default/50">No alerts currently logged in Firestore.</p>
+                        </div>
+                    </div>
+
+                    <!-- Manual AI Threat Analysis Panel -->
+                    <div class="lg:col-span-1">
+                        <div class="bg-widget-bg p-5 rounded-xl shadow-inner border border-accent-primary/50 sticky top-4">
+                            <h2 class="text-xl font-bold text-accent-primary mb-4 flex items-center">
+                                <i class="fas fa-microchip mr-2"></i> Manual AI Threat Analysis
+                            </h2>
+                            <div id="ai-analysis-output" class="text-sm">
+                                <p class="text-text-default/70 italic">Click an alert row in the table (once populated) to run the **Manual** diagnostic and get a detailed explanation of the threat.</p>
+                                <div id="analysis-loading" class="hidden mt-4 text-center">
+                                    <i class="fas fa-spinner fa-spin text-accent-primary text-2xl"></i>
+                                    <p class="mt-2 text-accent-primary">Analyzing threat with Gemini...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- 3. Network Traffic Analysis View -->
+            <div id="traffic-view" class="view hidden">
+                <h1 class="text-3xl font-bold text-text-high mb-6">Network Traffic Analysis</h1>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    <!-- Protocol Breakdown (Pie Graph) -->
+                    <div class="lg:col-span-1 bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50 flex flex-col items-center">
+                        <h2 class="text-xl font-semibold text-text-high mb-4">Protocol Breakdown</h2>
+                        <canvas id="pieChart" width="300" height="300" class="rounded-lg"></canvas>
+                        <div class="mt-4 text-sm">
+                            <p><span class="inline-block w-3 h-3 rounded-full bg-accent-secondary mr-2"></span> TCP (45%)</p>
+                            <p><span class="inline-block w-3 h-3 rounded-full bg-error mr-2"></span> UDP (30%)</p>
+                            <p><span class="inline-block w-3 h-3 rounded-full bg-success mr-2"></span> ICMP (15%)</p>
+                            <p><span class="inline-block w-3 h-3 rounded-full bg-warning mr-2"></span> Other (10%)</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Attacker/Source Geo-Map Placeholder -->
+                    <div class="lg:col-span-2 bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                        <h2 class="text-xl font-semibold text-text-high mb-4">Top Attacker Geo-Locations</h2>
+                        <div class="h-80 bg-bg-dark rounded-lg flex items-center justify-center border border-surface text-text-default/70">
+                            <p class="text-xl">Geo-Map Visualization Placeholder </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Packet Inspection & Protocol Info (Mock Data) -->
+                <div class="mt-6 bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                    <h2 class="text-xl font-semibold text-text-high mb-4">Packet Inspection Summary</h2>
+                    <pre class="bg-bg-dark p-4 rounded-lg text-sm font-mono overflow-x-auto border border-surface text-text-high">
+[Timestamp] 2025-10-20T01:05:42.123456
+[Source] 192.168.1.5:45888
+[Destination] 10.0.0.10:3306
+[Protocol] TCP
+[Signature] SQL Injection Attempt
+[Action] ALERTED
+                    </pre>
+                </div>
+            </div>
+
+            <!-- 4. Rules Management View (Skeletal UI) -->
+            <div id="rules-view" class="view hidden">
+                <h1 class="text-3xl font-bold text-text-high mb-6">Rules Management & Controls</h1>
+                <!-- UI components for Rule Editor, Prevention Controls, etc., remain similar to previous version -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div class="md:col-span-2 bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                        <h2 class="text-xl font-semibold text-text-high mb-4">Custom Rule Editor</h2>
+                        <textarea rows="10" placeholder="alert tcp $EXTERNAL_NET any -> $HOME_NET 80 (msg:&#34;WEB_SERVER_SQL_INJECTION&#34;; content:&#34;UNION SELECT&#34;; sid:9000001; rev:1;)" 
+                            class="w-full p-4 bg-bg-dark text-success font-mono border border-surface rounded-lg focus:border-accent-primary outline-none"></textarea>
+                        
+                        <div class="flex justify-between items-center mt-3">
+                            <button class="px-4 py-2 rounded-md font-bold text-bg-dark bg-success hover:bg-success/80 transition">
+                                <i class="fas fa-save mr-2"></i> Save & Apply Rule
+                            </button>
+                            <label class="text-text-default">
+                                <input type="checkbox" checked class="mr-2 accent-accent-primary"> Machine Learning Toggle
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                        <h2 class="text-xl font-semibold text-text-high mb-4">Prevention Controls</h2>
+                        <ul class="space-y-3">
+                            <li class="flex justify-between items-center">Current Block List (IPs):<span class="text-accent-primary font-mono">12</span></li>
+                            <li class="flex justify-between items-center">Auto-Response Settings:<span class="text-success font-semibold">Enabled</span></li>
+                        </ul>
+                        <button class="w-full mt-5 px-4 py-2 rounded-md font-bold text-bg-dark bg-accent-secondary hover:bg-accent-secondary/80 transition">
+                            <i class="fas fa-play-circle mr-2"></i> Deploy Rules
+                        </button>
+                        <button class="w-full mt-3 px-4 py-2 rounded-md font-bold text-text-high border border-text-default/50 hover:bg-surface transition">
+                            Import / Export Rules
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. Report Analytics View (Skeletal UI) -->
+             <div id="reports-view" class="view hidden">
+                <h1 class="text-3xl font-bold text-text-high mb-6">Report Analytics & System Settings</h1>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    <div class="bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                        <h2 class="text-xl font-semibold text-text-high mb-4">Report Generation</h2>
+                        <ul class="space-y-3 text-text-default">
+                            <li><i class="fas fa-file-pdf mr-2 text-error"></i> Daily Threat Summary (PDF)</li>
+                            <li><i class="fas fa-file-csv mr-2 text-success"></i> Weekly Protocol Analysis (CSV)</li>
+                            <li><i class="fas fa-calendar-alt mr-2 text-warning"></i> Monthly System Health</li>
+                        </ul>
+                        <button class="w-full mt-5 px-4 py-2 rounded-md font-bold text-bg-dark bg-accent-secondary hover:bg-accent-secondary/80 transition">
+                            Generate Custom Report
+                        </button>
+                    </div>
+                    
+                    <div class="bg-widget-bg p-5 rounded-xl shadow-inner border border-surface/50">
+                        <h2 class="text-xl font-semibold text-text-high mb-4">Backup & User Management</h2>
+                        <div class="space-y-3">
+                            <button class="w-full px-4 py-2 rounded-md font-bold text-text-high border border-accent-primary/50 hover:bg-accent-primary/10 transition">
+                                <i class="fas fa-upload mr-2"></i> Backup Configuration
+                            </button>
+                            <button class="w-full px-4 py-2 rounded-md font-bold text-text-high border border-accent-secondary/50 hover:bg-accent-secondary/10 transition">
+                                <i class="fas fa-users-cog mr-2"></i> Manage Users
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script>
+        // --- Socket.IO Setup ---
+        let socket;
+        
+        function connectSocket() {
+            // Connect to the same host/port as the page
+            socket = io({
+                transports: ['websocket'],
+                upgrade: false
+            });
+
+            socket.on('connect', () => {
+                console.log('Socket.IO Connected');
+                document.getElementById('log-stream').innerHTML += '<div class="text-success">Connected to IDPS server</div>';
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Socket.IO Disconnected');
+                document.getElementById('log-stream').innerHTML += '<div class="text-error">Disconnected from IDPS server</div>';
+            });
+
+            socket.on('suricata_event', (evt) => {
+                console.log('Received event:', evt);
+                handleSuricataEvent(evt);
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('Socket.IO Connect Error:', error);
+                document.getElementById('log-stream').innerHTML += '<div class="text-error">Connection error: ' + error + '</div>';
+            });
+        }
+
+        function handleSuricataEvent(evt) {
+            // Format timestamp
+            const ts = new Date(evt.timestamp || Date.now());
+            const time = ts.toLocaleTimeString();
+            
+            // Extract common fields
+            const src = evt.src_ip ? `${evt.src_ip}${evt.src_port ? ':'+evt.src_port : ''}` : 'unknown';
+            const dst = evt.dest_ip ? `${evt.dest_ip}${evt.dest_port ? ':'+evt.dest_port : ''}` : 'unknown';
+            const severity = (evt.alert?.severity || evt.severity || 'INFO').toUpperCase();
+            const signature = evt.alert?.signature || evt.event_type || 'unknown';
+
+            // Update log stream
+            const logStream = document.getElementById('log-stream');
+            const logEntry = document.createElement('div');
+            logEntry.className = `mb-1 ${severity === 'CRITICAL' ? 'text-error' : 'text-text-default'}`;
+            logEntry.innerHTML = `${time} [${severity}] ${signature} - ${src} → ${dst}`;
+            logStream.insertBefore(logEntry, logStream.firstChild);
+
+            // Limit log entries
+            while (logStream.children.length > 100) {
+                logStream.removeChild(logStream.lastChild);
+            }
+
+            // Update counters
+            if (severity === 'CRITICAL') {
+                const counter = document.getElementById('critical-alert-count');
+                if (counter) {
+                    counter.textContent = (parseInt(counter.textContent) || 0) + 1;
+                }
+            }
+
+            // Update event details
+            const details = document.getElementById('latest-event-json');
+            if (details) {
+                details.innerHTML = `<pre class="event_json">${JSON.stringify(evt, null, 2)}</pre>`;
+            }
+
+            // Update recent events
+            const recentEvents = document.getElementById('recent-events');
+            if (recentEvents) {
+                const event = document.createElement('div');
+                event.className = 'py-1 border-b border-surface/20';
+                event.innerHTML = `
+                    <div class="text-xs text-text-default/60">${time}</div>
+                    <div class="text-sm text-text-high">${signature}</div>
+                    <div class="text-xs text-text-default/60">${src} → ${dst}</div>
+                `;
+                recentEvents.insertBefore(event, recentEvents.firstChild);
+                while (recentEvents.children.length > 50) {
+                    recentEvents.removeChild(recentEvents.lastChild);
+                }
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            connectSocket();
+            // Update the live chart periodically
+            setInterval(() => {
+                const chart = document.getElementById('liveAlertChart');
+                if (chart) {
+                    updateLiveChart();
+                }
+            }, 1000);
+        });
+
+        // Basic UI colors used by chart drawing
+        const CHART_COLOR = '#bb9af7';
+        const LINE_COLOR = '#414863';
+        const TEXT_COLOR = '#a9b1d6';
+        const ACCENT_COLORS = ['#7dcfff', '#f7768e', '#9ece6a', '#e0af68'];
+
+        // --- Live metrics ---
+        const ALERT_WINDOW = 30; // seconds
+        let alertData = Array(ALERT_WINDOW).fill(0); // counts per second
+        let currentSecondCount = 0;
+        let alertTickInterval = null;
+
+        // Top trackers
+        const topSignatures = new Map();
+        const topSources = new Map();
+        let totalEvents = 0;
+        let blockedCount = 0;
+        let criticalCount = 0;
+        let activeFlows = new Set();
+
+        // --- Event handling ---
+        function handleSuricataEvent(evt) {
+            totalEvents++;
+            // increment per-second counter for chart
+            currentSecondCount++;
+
+            // derive common fields (eve.json)
+            const ts = new Date(evt.timestamp ? evt.timestamp : Date.now());
+            const time = ts.toLocaleTimeString('en-US', { hour12: false });
+            const src = evt.src_ip ? `${evt.src_ip}${evt.src_port ? ':'+evt.src_port : ''}` : (evt.source || 'unknown');
+            const dst = evt.dest_ip ? `${evt.dest_ip}${evt.dest_port ? ':'+evt.dest_port : ''}` : (evt.destination || 'unknown');
+            const signature = evt.alert?.signature || evt.signature || evt.rule || (evt.event_type || 'event');
+            const severity = (evt.alert?.severity || evt.severity || 'INFO').toString().toUpperCase();
+            const action = (evt.action || evt.event_type || (evt.alert && evt.alert.action) || '').toString().toUpperCase();
+
+            // update counters and sets
+            if (severity === 'CRITICAL') {
+                criticalCount++;
+                const el = document.getElementById('critical-alert-count');
+                if (el) el.textContent = criticalCount;
+            }
+            if (action === 'BLOCK' || action === 'BLOCKED' || evt.action === 'drop') {
+                blockedCount++;
+                const el = document.getElementById('blocked-count');
+                if (el) el.textContent = blockedCount;
+            }
+
+            if (evt.flow_id || (evt.src_ip && evt.dest_ip)) {
+                activeFlows.add((evt.flow_id || `${evt.src_ip}->${evt.dest_ip}`));
+                const el = document.getElementById('active-flows');
+                if (el) el.textContent = activeFlows.size;
+            }
+
+            // track top signatures & top sources
+            if (signature) {
+                topSignatures.set(signature, (topSignatures.get(signature) || 0) + 1);
+            }
+            if (evt.src_ip) {
+                topSources.set(evt.src_ip, (topSources.get(evt.src_ip) || 0) + 1);
+            }
+
+            // update recent events list
+            const recentEl = document.getElementById('recent-events');
+            if (recentEl) {
+                const item = document.createElement('div');
+                item.className = 'py-1 border-b border-surface/20';
+                item.innerHTML = `<div class="text-xs text-text-default/60">${time}</div><div class="text-sm text-text-high font-mono">${signature}</div><div class="text-xs text-text-default/60">${src} → ${dst}</div>`;
+                recentEl.prepend(item);
+                // limit recent list
+                while (recentEl.children.length > 100) recentEl.removeChild(recentEl.lastChild);
+            }
+
+            // update latest event JSON view (pretty)
+            const latestJson = document.getElementById('latest-event-json');
+            if (latestJson) {
+                try {
+                    latestJson.innerHTML = `<pre class="event-json">${JSON.stringify(evt, null, 2)}</pre>`;
+                } catch (e) {
+                    latestJson.textContent = String(evt);
+                }
+            }
+
+            // update top lists UI
+            updateTopLists();
+
+            // add to alerts table
+            if (severity !== 'INFO' || evt.alert) {
+                addAlertToTable(signature || 'UNKNOWN', time, src, dst, severity);
+            }
+        }
+
+        function updateTopLists() {
+            // Top Signatures
+            const sigArr = Array.from(topSignatures.entries()).sort((a,b) => b[1]-a[1]).slice(0,10);
+            const sigEl = document.getElementById('top-signatures');
+            if (sigEl) {
+                sigEl.innerHTML = '';
+                sigArr.forEach(([sig, count]) => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-mono text-xs text-text-default/70">${count}</span> <span class="text-sm text-text-high">${sig}</span>`;
+                    sigEl.appendChild(li);
+                });
+            }
+            // Top Sources
+            const srcArr = Array.from(topSources.entries()).sort((a,b) => b[1]-a[1]).slice(0,10);
+            const srcEl = document.getElementById('top-sources');
+            if (srcEl) {
+                srcEl.innerHTML = '';
+                srcArr.forEach(([ip, count]) => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-mono text-xs text-text-default/70">${count}</span> <span class="text-sm text-text-high">${ip}</span>`;
+                    srcEl.appendChild(li);
+                });
+            }
+        }
+
+        // --- Alerts table helper ---
+        function addAlertToTable(signature, time, src, dst, severity) {
+            const tbody = document.querySelector('#alerts-table tbody');
+            const emptyNote = document.getElementById('alerts-table-empty');
+            if (emptyNote) emptyNote.style.display = 'none';
+            if (!tbody) return;
+            const tr = document.createElement('tr');
+            const statusColor = severity === 'CRITICAL' ? 'text-error' : (severity === 'HIGH' ? 'text-accent-primary' : 'text-text-default');
+            tr.innerHTML = `
+                <td class="px-6 py-3 text-xs font-mono">${time}</td>
+                <td class="px-6 py-3 text-xs ${statusColor}">${severity}</td>
+                <td class="px-6 py-3 text-sm text-text-high">${signature}</td>
+                <td class="px-6 py-3 text-xs">${src} → ${dst}</td>
+            `;
+            tbody.prepend(tr);
+            // cap rows
+            while (tbody.children.length > 200) tbody.removeChild(tbody.lastChild);
+        }
+
+        // --- Chart update loop ---
+        function tickAlertWindow() {
+            // push currentSecondCount to alertData and reset for new second
+            alertData.shift();
+            alertData.push(currentSecondCount);
+            currentSecondCount = 0;
+            updateLiveChart();
+        }
+
+        function updateLiveChart() {
+            const maxVal = Math.max(10, ...alertData);
+            drawLiveChart('liveAlertChart', maxVal);
+        }
+
+        // drawLiveChart implementation (keeps existing aesthetic)
+        function drawLiveChart(canvasId, maxVal) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width = canvas.parentElement.offsetWidth - 40;
+            const height = canvas.height = Math.min(400, width * 0.4);
+            const padding = 40;
+            
+            ctx.clearRect(0, 0, width, height);
+            ctx.strokeStyle = LINE_COLOR;
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 5; i++) {
+                const y = padding + (height - 2 * padding) * i / 4;
+                ctx.beginPath();
+                ctx.moveTo(padding, y);
+                ctx.lineTo(width - padding, y);
+                ctx.stroke();
+                ctx.fillStyle = TEXT_COLOR;
+                ctx.font = '12px Inter';
+                ctx.textAlign = 'right';
+                const label = Math.round(maxVal * (4 - i) / 4).toString();
+                ctx.fillText(label, padding - 5, y + 4);
+            }
+
+            ctx.beginPath();
+            alertData.forEach((value, index) => {
+                const x = padding + (width - 2 * padding) * index / (alertData.length - 1);
+                const clampedValue = Math.min(value, maxVal); 
+                const y = height - padding - (clampedValue / maxVal) * (height - 2 * padding);
+                if (index === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+            });
+            ctx.strokeStyle = CHART_COLOR;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // draw dots
+            alertData.forEach((value, index) => {
+                const x = padding + (width - 2 * padding) * index / (alertData.length - 1);
+                const clampedValue = Math.min(value, maxVal);
+                const y = height - padding - (clampedValue / maxVal) * (height - 2 * padding);
+                ctx.fillStyle = CHART_COLOR;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI*2);
+                ctx.fill();
+            });
+
+            // footer labels
+            ctx.textAlign = 'center';
+            ctx.fillStyle = TEXT_COLOR;
+            ['30s Ago', '20s Ago', '10s Ago', 'Now'].forEach((label, index) => {
+                const x = padding + (width - 2 * padding) * index / 3;
+                ctx.fillText(label, x, height - padding + 20);
+            });
+        }
+
+        // --- Utilities & stubs ---
+        function exportAlerts() {
+            alert('Export not implemented in this build.');
+        }
+
+        // --- Initialization: start tick interval and canvas sizing ---
+        function initializeDashboard() {
+            showView('dashboard-view');
+            // start per-second tick for the alert window
+            if (!alertTickInterval) {
+                alertTickInterval = setInterval(tickAlertWindow, 1000);
+            }
+            // initial draw
+            updateLiveChart();
+            window.addEventListener('resize', () => updateLiveChart());
+        }
+
+        // --- View Switching (kept from your file) ---
+        function showView(viewId) {
+            document.querySelectorAll('.view').forEach(view => {
+                view.classList.add('hidden');
+            });
+            const selectedView = document.getElementById(viewId);
+            if (selectedView) {
+                selectedView.classList.remove('hidden');
+                if (viewId === 'traffic-view') {
+                    drawLiveChart('pieChart', 100);
+                } else if (viewId === 'dashboard-view') {
+                    updateLiveChart();
+                }
+            }
+            
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('onclick') && link.getAttribute('onclick').includes(`'${viewId}'`)) {
+                    link.classList.add('active');
+                }
+            });
+        }
+
+        window.onload = initializeDashboard;
+        window.showView = showView;
+        window.exportAlerts = exportAlerts;
+    </script>
+</body>
+</html>
