@@ -46,13 +46,12 @@ cd flask-suricata-dashboard
 
 2. Create and activate a virtual environment:
 ```powershell
-python -m venv venv
-.\venv\Scripts\activate
+python -m venv <Project Directory>
 ```
 
 3. Install dependencies:
 ```powershell
-pip install -r requirements.txt
+<Project DIR>/bin/pip install -r requirements.txt
 ```
 
 4. Configure Suricata path:
@@ -66,7 +65,7 @@ $env:SURICATA_EVE_PATH="C:\Program Files\Suricata\log\eve.json"
 1. Start the Flask server:
 ```powershell
 cd src
-python app.py
+<Project DIR>/bin/python ../app.py
 ```
 
 2. Open your browser and navigate to:
@@ -81,22 +80,6 @@ The application can be configured through environment variables or `config.py`:
 - `SURICATA_EVE_PATH`: Path to Suricata's eve.json file
 - `SECRET_KEY`: Flask secret key for session security
 - `DEBUG`: Enable/disable debug mode (default: True)
-
-## Development
-
-To start development:
-
-1. Install development dependencies:
-```powershell
-pip install -r requirements-dev.txt  # if you have one
-```
-
-2. Run with debug mode:
-```powershell
-python src/app.py
-```
-
-3. Access the development server at `http://localhost:5000`
 
 ## Troubleshooting
 
